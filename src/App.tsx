@@ -12,36 +12,29 @@ import { AdminPanel } from './components/AdminPanel';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { TrackOrderModal } from './components/TrackOrderModal';
 import { Footer } from './components/Footer';
-import { initialProducts } from './data/initialProducts';
 import type { Product, CartItem, PrescriptionDetails } from './types';
 import { Shield, MessageCircle, Laptop, Heart, Star } from 'lucide-react';
 
 function App() {
-  // Load products from localStorage or default to seed data
-  const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('riaz_opticals_inventory');
-    const deletedSaved = localStorage.getItem('riaz_opticals_deleted_ids');
-    const deletedIds = deletedSaved ? new Set(JSON.parse(deletedSaved) as string[]) : new Set<string>();
+  const [products, setProducts] = useState<Product[]>([]);
 
-    if (!saved) {
-      const filtered = initialProducts.filter(p => !deletedIds.has(p.id));
-      localStorage.setItem('riaz_opticals_inventory', JSON.stringify(filtered));
-      return filtered;
-    }
-    try {
-      const parsed = JSON.parse(saved) as Product[];
-      const parsedIds = new Set(parsed.map(p => p.id));
-      const newInitialProducts = initialProducts.filter(p => !parsedIds.has(p.id) && !deletedIds.has(p.id));
-      if (newInitialProducts.length > 0) {
-        const updated = [...parsed, ...newInitialProducts];
-        localStorage.setItem('riaz_opticals_inventory', JSON.stringify(updated));
-        return updated;
+  // Fetch products from the backend database on mount
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const res = await fetch('/api/products');
+        if (res.ok) {
+          const data = await res.json();
+          setProducts(data);
+        } else {
+          console.error('Failed to fetch products from backend API');
+        }
+      } catch (error) {
+        console.error('Error fetching products:', error);
       }
-      return parsed;
-    } catch (e) {
-      return initialProducts;
-    }
-  });
+    };
+    fetchProducts();
+  }, []);
 
   // Load cart from localStorage
   const [cartItems, setCartItems] = useState<CartItem[]>(() => {
@@ -77,10 +70,6 @@ function App() {
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
   const [tryOnProduct, setTryOnProduct] = useState<Product | null>(null);
 
-  // Sync products to localStorage
-  useEffect(() => {
-    localStorage.setItem('riaz_opticals_inventory', JSON.stringify(products));
-  }, [products]);
 
   // Sync admin authentication state
   useEffect(() => {
@@ -145,43 +134,78 @@ function App() {
   }, [selectedCategory]);
 
   // Catalog modification callbacks (Admin)
-  const handleAddProduct = (newProduct: Omit<Product, 'id' | 'rating' | 'reviewsCount' | 'inStock'>) => {
+  const handleAddProduct = async (newProduct: Omit<Product, 'id' | 'rating' | 'reviewsCount' | 'inStock'>) => {
+    const tempId = `bc-${Date.now()}`;
     const addedProduct: Product = {
       ...newProduct,
-      id: `bc-${Date.now()}`,
+      id: tempId,
       rating: 5.0,
       reviewsCount: 1,
       inStock: true,
     };
-    setProducts((prev) => [addedProduct, ...prev]);
-  };
-
-  const handleRemoveProduct = (productId: string) => {
-    setProducts((prev) => prev.filter((p) => p.id !== productId));
-    // Also clean up from cart if deleted product was in cart
-    setCartItems((prev) => prev.filter((item) => item.product.id !== productId));
     
-    // Save to deleted IDs
     try {
-      const deletedSaved = localStorage.getItem('riaz_opticals_deleted_ids');
-      const deletedIds = deletedSaved ? (JSON.parse(deletedSaved) as string[]) : [];
-      if (!deletedIds.includes(productId)) {
-        deletedIds.push(productId);
-        localStorage.setItem('riaz_opticals_deleted_ids', JSON.stringify(deletedIds));
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(addedProduct),
+      });
+      if (res.ok) {
+        const savedProduct = await res.json();
+        setProducts((prev) => [savedProduct, ...prev]);
+      } else {
+        console.error('Failed to add product to backend');
+        alert('Error adding product to database.');
       }
-    } catch (e) {
-      console.error('Error saving deleted product ID', e);
+    } catch (error) {
+      console.error('Error adding product:', error);
+      alert('Failed to connect to backend server.');
     }
   };
 
-  const handleUpdateProduct = (updatedProduct: Product) => {
-    setProducts((prev) => prev.map((p) => (p.id === updatedProduct.id ? updatedProduct : p)));
-    // Sync cart items with the updated product details if it exists in the cart
-    setCartItems((prev) =>
-      prev.map((item) =>
-        item.product.id === updatedProduct.id ? { ...item, product: updatedProduct } : item
-      )
-    );
+  const handleRemoveProduct = async (productId: string) => {
+    try {
+      const res = await fetch(`/api/products/${productId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setProducts((prev) => prev.filter((p) => p.id !== productId));
+        // Also clean up from cart if deleted product was in cart
+        setCartItems((prev) => prev.filter((item) => item.product.id !== productId));
+      } else {
+        console.error('Failed to delete product from backend');
+        alert('Error removing product from database.');
+      }
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      alert('Failed to connect to backend server.');
+    }
+  };
+
+  const handleUpdateProduct = async (updatedProduct: Product) => {
+    try {
+      const res = await fetch(`/api/products/${updatedProduct.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedProduct),
+      });
+      if (res.ok) {
+        const savedProduct = await res.json();
+        setProducts((prev) => prev.map((p) => (p.id === savedProduct.id ? savedProduct : p)));
+        // Sync cart items with the updated product details if it exists in the cart
+        setCartItems((prev) =>
+          prev.map((item) =>
+            item.product.id === savedProduct.id ? { ...item, product: savedProduct } : item
+          )
+        );
+      } else {
+        console.error('Failed to update product on backend');
+        alert('Error updating product in database.');
+      }
+    } catch (error) {
+      console.error('Error updating product:', error);
+      alert('Failed to connect to backend server.');
+    }
   };
 
   // Cart operations
