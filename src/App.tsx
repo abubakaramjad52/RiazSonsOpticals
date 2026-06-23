@@ -92,6 +92,53 @@ function App() {
     localStorage.setItem('riaz_opticals_cart', JSON.stringify(cartItems));
   }, [cartItems]);
 
+  // Sync URL search parameters with application state for deep linking and SEO crawling
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const categoryParam = params.get('category');
+    const searchParam = params.get('search');
+    const productParam = params.get('product');
+
+    if (categoryParam) {
+      setSelectedCategory(categoryParam);
+    }
+    if (searchParam) {
+      setSearchQuery(searchParam);
+    }
+    if (productParam) {
+      const match = products.find((p) => p.id === productParam);
+      if (match) {
+        setQuickViewProduct(match);
+      }
+    }
+  }, [products]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    
+    if (selectedCategory && selectedCategory !== 'all') {
+      params.set('category', selectedCategory);
+    } else {
+      params.delete('category');
+    }
+
+    if (searchQuery) {
+      params.set('search', searchQuery);
+    } else {
+      params.delete('search');
+    }
+
+    if (quickViewProduct) {
+      params.set('product', quickViewProduct.id);
+    } else {
+      params.delete('product');
+    }
+
+    const queryString = params.toString();
+    const newUrl = window.location.pathname + (queryString ? `?${queryString}` : '');
+    window.history.replaceState(null, '', newUrl);
+  }, [selectedCategory, searchQuery, quickViewProduct]);
+
   // Reset scroll position to top when selected category changes, simulating page navigation
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
